@@ -7,15 +7,21 @@ using System.Net.Http;
 using Microsoft.AspNetCore.Http;
 using Ocelot.Configuration.Creator;
 using Ocelot.Request.Middleware;
+using Ocelot.Infrastructure;
+using Microsoft.Extensions.Logging;
 
 namespace Ocelot.Headers
 {
     public class AddHeadersToRequest : IAddHeadersToRequest
     {
         private readonly IClaimsParser _claimsParser;
+        private readonly IPlaceholders placeholders;
+        private readonly ILogger<AddHeadersToRequest> logger;
 
-        public AddHeadersToRequest(IClaimsParser claimsParser)
+        public AddHeadersToRequest(IClaimsParser claimsParser, IPlaceholders placeHolders, ILogger<AddHeadersToRequest> logger)
         {
+            this.logger = logger;
+            this.placeholders = placeHolders;
             _claimsParser = claimsParser;
         }
 
@@ -42,7 +48,7 @@ namespace Ocelot.Headers
 
             return new OkResponse();
         }
-        
+
         public void SetHeadersOnDownstreamRequest(IEnumerable<AddHeader> headers, HttpContext context)
         {
             var requestHeader = context.Request.Headers;
@@ -53,7 +59,23 @@ namespace Ocelot.Headers
                     requestHeader.Remove(header.Key);
                 }
 
-                requestHeader.Add(header.Key, header.Value);
+                if (header.Value.StartsWith("{") && header.Value.EndsWith("}"))
+                {
+                    var value = placeholders.Get(header.Value);
+
+                    if (value.IsError)
+                    {
+                        logger.LogWarning($"Unable to add header to response {header.Key}: {header.Value}");
+                        continue;
+                    }
+
+                    requestHeader.Add(header.Key,value.Data);
+                }
+                else
+                {
+                    requestHeader.Add(header.Key, header.Value);
+                }
+
             }
         }
     }
